@@ -1,0 +1,160 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Clean, minimal theme - Stripe/Linear/Vercel inspired */
+
+@layer base {
+  :root {
+    --accent: 99 102 241; /* Indigo-500 */
+  }
+
+  * {
+    @apply border-gray-200 dark:border-gray-800;
+  }
+
+  html {
+    @apply antialiased;
+  }
+
+  body {
+    @apply bg-white text-gray-900 dark:bg-gray-950 dark:text-gray-100;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  }
+
+  ::selection {
+    @apply bg-indigo-100 text-indigo-900 dark:bg-indigo-900/50 dark:text-indigo-100;
+  }
+}
+
+@layer components {
+  /* Container */
+  .container {
+    @apply w-full mx-auto px-4 sm:px-6 lg:px-8;
+    max-width: 1200px;
+  }
+
+  .container-narrow {
+    @apply w-full mx-auto px-4 sm:px-6;
+    max-width: 480px;
+  }
+
+  /* Cards - clean with subtle shadow */
+  .card {
+    @apply bg-white dark:bg-gray-900
+           border border-gray-200 dark:border-gray-800
+           rounded-xl p-6
+           shadow-sm;
+  }
+
+  .card-interactive {
+    @apply card
+           hover:border-gray-300 dark:hover:border-gray-700
+           hover:shadow-md
+           transition-all duration-200;
+  }
+
+  /* Inputs */
+  .input {
+    @apply w-full rounded-lg
+           bg-white dark:bg-gray-900
+           border border-gray-300 dark:border-gray-700
+           px-4 py-3
+           text-base text-gray-900 dark:text-gray-100
+           placeholder:text-gray-400 dark:placeholder:text-gray-500
+           focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500
+           transition-colors duration-150;
+  }
+
+  .input-lg {
+    @apply input text-2xl font-semibold text-center py-4;
+  }
+
+  /* Buttons */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2
+           px-5 py-3 rounded-lg
+           text-sm font-semibold text-white
+           bg-indigo-600 hover:bg-indigo-700
+           focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2
+           dark:focus:ring-offset-gray-900
+           disabled:opacity-50 disabled:cursor-not-allowed
+           transition-colors duration-150;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2
+           px-5 py-3 rounded-lg
+           text-sm font-semibold
+           text-gray-700 dark:text-gray-300
+           bg-gray-100 dark:bg-gray-800
+           hover:bg-gray-200 dark:hover:bg-gray-700
+           focus:outline-none focus:ring-2 focus:ring-gray-500/20
+           transition-colors duration-150;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2
+           px-4 py-2 rounded-lg
+           text-sm font-medium
+           text-gray-600 dark:text-gray-400
+           hover:text-gray-900 dark:hover:text-gray-100
+           hover:bg-gray-100 dark:hover:bg-gray-800
+           transition-colors duration-150;
+  }
+
+  /* Labels */
+  .label {
+    @apply text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400;
+  }
+
+  /* Badges */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5
+           text-xs font-medium rounded-full;
+  }
+
+  .badge-primary {
+    @apply badge bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400;
+  }
+
+  .badge-success {
+    @apply badge bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400;
+  }
+
+  .badge-warning {
+    @apply badge bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400;
+  }
+
+  .badge-error {
+    @apply badge bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400;
+  }
+
+  /* Divider */
+  .divider {
+    @apply border-t border-gray-200 dark:border-gray-800;
+  }
+
+  /* Section headers */
+  .section-label {
+    @apply text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 dark:bg-gray-700 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400 dark:bg-gray-600;
+}
