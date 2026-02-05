@@ -1,0 +1,6 @@
+node_modules/
+dist/
+
+# Keep the data folder but not the actual data
+data/*.json
+!data/.gitkeep

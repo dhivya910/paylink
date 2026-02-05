@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { isAddress } from 'viem';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 
 dotenv.config();
 
@@ -35,10 +36,35 @@ type Intent = {
 };
 
 // =============================================================================
-// IN-MEMORY STORE
+// PERSISTENT STORAGE (JSON FILE)
 // =============================================================================
 
-const intents = new Map<string, Intent>();
+const DATA_FILE = './data/intents.json';
+
+// Load intents from file on startup
+function loadIntents(): Map<string, Intent> {
+  try {
+    if (existsSync(DATA_FILE)) {
+      const data = JSON.parse(readFileSync(DATA_FILE, 'utf-8'));
+      return new Map(Object.entries(data));
+    }
+  } catch (err) {
+    console.error('Failed to load intents:', err);
+  }
+  return new Map();
+}
+
+// Save intents to file
+function saveIntents() {
+  try {
+    const data = Object.fromEntries(intents);
+    writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error('Failed to save intents:', err);
+  }
+}
+
+const intents = loadIntents();
 
 // =============================================================================
 // HELPERS
@@ -98,6 +124,7 @@ app.post('/create-intent', (req, res) => {
   };
   
   intents.set(id, intent);
+  saveIntents();
   
   console.log(`✅ Created intent ${id}: ${numAmount} ${token} → ${recipient}`);
   
@@ -181,6 +208,7 @@ app.post('/create-split', (req, res) => {
   };
   
   intents.set(id, intent);
+  saveIntents();
   
   console.log(`✅ Created split ${id}: ${numAmount} ${token} with ${participants.length} participants`);
   
@@ -234,6 +262,7 @@ app.post('/split/:id/pay', (req, res) => {
   }
   
   intents.set(id, intent);
+  saveIntents();
   
   console.log(`💰 Split ${id}: ${participantAddress} paid (${intent.paidCount}/${intent.totalParticipants})`);
   
@@ -266,6 +295,7 @@ app.post('/fusion/callback', (req, res) => {
   intent.status = 'paid';
   intent.txHash = txHash || undefined;
   intents.set(intentId, intent);
+  saveIntents();
   
   console.log(`💰 Payment completed for ${intentId}: ${txHash}`);
   
