@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react'
 
 function ThemeToggle() {
   const [dark, setDark] = useState<boolean>(() => {
-    const saved = localStorage.getItem('paylink-theme')
+    const saved = localStorage.getItem('Zap-theme')
     return saved ? saved === 'dark' : true
   })
 
@@ -17,7 +17,7 @@ function ThemeToggle() {
     const root = document.documentElement
     if (dark) root.classList.add('dark')
     else root.classList.remove('dark')
-    localStorage.setItem('paylink-theme', dark ? 'dark' : 'light')
+    localStorage.setItem('Zap-theme', dark ? 'dark' : 'light')
   }, [dark])
 
   return (
@@ -46,7 +46,7 @@ function App() {
               <Zap className="w-4 h-4 text-white" />
             </div>
             <div className="flex flex-col">
-              <span className="font-semibold text-gray-900 dark:text-white leading-tight">PayLink</span>
+              <span className="font-semibold text-gray-900 dark:text-white leading-tight">Zap</span>
               <span className="text-[10px] text-gray-500 leading-tight hidden sm:block">
                 Cross-chain payments
               </span>
@@ -137,7 +137,7 @@ function App() {
               <div className="w-5 h-5 rounded bg-indigo-600 flex items-center justify-center">
                 <Zap className="w-3 h-3 text-white" />
               </div>
-              <span className="font-medium text-gray-700 dark:text-gray-300">PayLink</span>
+              <span className="font-medium text-gray-700 dark:text-gray-300">Zap</span>
               <span className="text-gray-300 dark:text-gray-700">·</span>
               <span>Built for ETHGlobal HackMoney</span>
             </div>

@@ -539,9 +539,9 @@ export default function LandingPage() {
         </p>
       </section>
 
-      {/* Why PayLink */}
+      {/* Why Zap */}
       <section className="text-center">
-        <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Why PayLink</h3>
+        <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Why Zap</h3>
         
         <div className="flex flex-wrap justify-center gap-3">
           {features.map((feature) => (

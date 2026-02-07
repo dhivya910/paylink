@@ -24,6 +24,7 @@ export const CHAIN_NAMES: Record<number, string> = {
   42161: 'Arbitrum',
   8453: 'Base',
   10: 'Optimism',
+  11155111: 'Sepolia',
 };
 
 /**
@@ -36,7 +37,7 @@ export const CHAIN_NAMES: Record<number, string> = {
  */
 export function initializeLiFi() {
   createConfig({
-    integrator: 'paylink-hackmoney',
+    integrator: 'Zap-hackmoney',
   });
 }
 

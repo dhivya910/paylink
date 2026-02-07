@@ -3,9 +3,10 @@ import { encodeFunctionData } from 'viem';
 
 // Chain configurations
 export const UNISWAP_CONFIG = {
-  // Uniswap V3 Router addresses (same on all chains)
-  SWAP_ROUTER_02: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45' as const,
-  QUOTER_V2: '0x61fFE014bA17989E743c5F6cB21bF9697530B21e' as const,
+  // Uniswap V3 Router addresses 
+  // Sepolia uses different addresses than mainnet
+  SWAP_ROUTER_02: '0x3bFA4769FB09eefC5a80d6E87c3B9C650f7Ae48E' as const, // Sepolia SwapRouter02
+  QUOTER_V2: '0xEd1f6473345F45b75F8179591dd5bA1888cf2FB3' as const,       // Sepolia QuoterV2
   
   // Pool fees (in hundredths of a bip, e.g., 3000 = 0.3%)
   FEE_TIERS: {
@@ -16,8 +17,11 @@ export const UNISWAP_CONFIG = {
   },
 } as const;
 
-// USDC token addresses by chain
+// USDC token addresses by chain (Sepolia uses test USDC)
 export const USDC_TOKENS: Record<number, Token> = {
+  // Sepolia testnet
+  11155111: new Token(11155111, '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', 6, 'USDC', 'USD Coin'),
+  // Mainnet (kept for reference)
   1: new Token(1, '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', 6, 'USDC', 'USD Coin'),
   137: new Token(137, '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', 6, 'USDC', 'USD Coin'),
   42161: new Token(42161, '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', 6, 'USDC', 'USD Coin'),
@@ -25,8 +29,11 @@ export const USDC_TOKENS: Record<number, Token> = {
   10: new Token(10, '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85', 6, 'USDC', 'USD Coin'),
 };
 
-// WETH token addresses by chain (for ETH swaps)
+// WETH token addresses by chain
 export const WETH_TOKENS: Record<number, Token> = {
+  // Sepolia testnet
+  11155111: new Token(11155111, '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14', 18, 'WETH', 'Wrapped Ether'),
+  // Mainnet
   1: new Token(1, '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', 18, 'WETH', 'Wrapped Ether'),
   137: new Token(137, '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619', 18, 'WETH', 'Wrapped Ether'),
   42161: new Token(42161, '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1', 18, 'WETH', 'Wrapped Ether'),
@@ -36,6 +43,7 @@ export const WETH_TOKENS: Record<number, Token> = {
 
 // Chain names for display
 export const CHAIN_NAMES: Record<number, string> = {
+  11155111: 'Sepolia',
   1: 'Ethereum',
   137: 'Polygon',
   42161: 'Arbitrum',

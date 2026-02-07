@@ -1,29 +1,37 @@
-# PayLink — Cross-Chain USDC Payments Powered by LI.FI
+# Zap — Cross-Chain USDC Payments Powered by LI.FI + Uniswap
 
 **Built for ETHGlobal HackMoney 2026** 
 
-## What is PayLink?
+## What is Zap?
 
-PayLink lets anyone create shareable payment links for USDC. The payer can pay from **any EVM chain** using **any token** — LI.FI handles all swaps and bridges automatically.
+Zap lets anyone create shareable payment links for USDC. The payer can pay from **any EVM chain** using **any token** — we automatically find the best route.
 
 **One signature. Any chain. Any token. USDC delivered.**
 
-## LI.FI Integration
+## DEX & Bridge Integrations
 
-This project uses **@lifi/sdk** as the core execution layer:
+### Uniswap V3 (Same-Chain)
+- Direct ETH → USDC swaps on supported chains
+- Best rates via 0.3% fee tier pools
+- Slippage protection with exact output swaps
 
-1. **Real Cross-Chain Execution**: Uses `executeRoute()` from LI.FI SDK to execute payments
-2. **Multi-Chain Support**: Pay from Ethereum, Polygon, Arbitrum, Base, or Optimism
-3. **Single Transaction UX**: User signs once; LI.FI handles swap + bridge automatically
-4. **Quote → Execute Flow**: Clear separation between fetching routes and executing them
+### LI.FI (Cross-Chain)
+- Aggregates 15+ bridges and 30+ DEXes
+- Automatic route optimization
+- Single-transaction UX for swap + bridge
 
+```
+User selects payment method:
+├── Same chain (Polygon) → Uniswap V3 direct swap
+└── Cross chain (ETH → Polygon) → LI.FI bridge + swap
+```
 
 ## Architecture
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│    Frontend     │────▶│    Backend      │     │     LI.FI       │
-│  React + Vite   │     │  Express API    │     │  SDK + Infra    │
+│    Frontend     │────▶│    Backend      │     │  Uniswap/LI.FI  │
+│  React + Vite   │     │  Express API    │     │  Smart Routing  │
 │  wagmi + Rainbow│     │  Intent Store   │     │                 │
 └────────┬────────┘     └─────────────────┘     └────────┬────────┘
          │                                                │
@@ -33,15 +41,15 @@ This project uses **@lifi/sdk** as the core execution layer:
                     Signs ONE transaction
                              │
                              ▼
-              LI.FI executes swap + bridge
+              Uniswap swap or LI.FI bridge
 ```
 
 ### Non-Custodial Design
 
 - **Backend never touches funds** — only stores payment intents
-- **Frontend executes routes** — using LI.FI SDK with user's wallet
-- **Transparent fees** — all gas/bridge fees shown upfront
+- **Frontend executes routes** — using Uniswap/LI.FI SDK with user's wallet
+- **Transparent fees** — all gas/swap fees shown upfront
 
 ## Safety
 
-> "PayLink is non-custodial. Funds never touch our backend. We only coordinate intent execution using audited routing infrastructure."
+> "Zap is non-custodial. Funds never touch our backend. We only coordinate intent execution using audited DEX and bridge infrastructure."
