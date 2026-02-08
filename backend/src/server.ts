@@ -73,9 +73,14 @@ const intents = loadIntents();
 // Validate recipient: either valid EVM address or ENS name
 function isValidRecipient(recipient: string): boolean {
   if (!recipient || typeof recipient !== 'string') return false;
-  const trimmed = recipient.trim();
+  const trimmed = recipient.trim().toLowerCase();
+  
+  // ENS name check
   if (trimmed.endsWith('.eth')) return trimmed.length > 4;
-  return isAddress(trimmed);
+  
+  // Handle addresses with or without 0x prefix
+  const address = trimmed.startsWith('0x') ? trimmed : `0x${trimmed}`;
+  return isAddress(address);
 }
 
 // Generate a simple intent ID
@@ -178,8 +183,8 @@ app.post('/create-split', (req, res) => {
     return res.status(400).json({ error: 'Invalid recipient address' });
   }
 
-  if (!Array.isArray(participants) || participants.length < 2) {
-    return res.status(400).json({ error: 'At least 2 participants required' });
+  if (!Array.isArray(participants) || participants.length < 1) {
+    return res.status(400).json({ error: 'At least 1 participant required' });
   }
 
   const numAmount = Number(amount);
@@ -300,6 +305,27 @@ app.post('/fusion/callback', (req, res) => {
   console.log(`💰 Payment completed for ${intentId}: ${txHash}`);
   
   return res.json({ ok: true, message: 'Payment status updated' });
+});
+
+/**
+ * DELETE /intent/:id
+ * 
+ * Deletes/closes an intent or split.
+ */
+app.delete('/intent/:id', (req, res) => {
+  const { id } = req.params;
+  
+  const intent = intents.get(id);
+  if (!intent) {
+    return res.status(404).json({ error: 'Intent not found' });
+  }
+  
+  intents.delete(id);
+  saveIntents();
+  
+  console.log(`🗑️ Deleted ${intent.type} ${id}`);
+  
+  return res.json({ ok: true, message: `${intent.type === 'split' ? 'Split' : 'Payment'} closed successfully` });
 });
 
 /**
