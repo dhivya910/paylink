@@ -4,7 +4,7 @@ import { useAccount, useChainId, useEnsAddress, useEnsAvatar } from 'wagmi';
 import { mainnet } from 'wagmi/chains';
 import { useLiFiPayment } from '../lib/useLiFiPayment';
 import { useUniswapPayment } from '../lib/useUniswapPayment';
-import { CHAIN_NAMES } from '../lib/lifi';
+import { CHAIN_NAMES, getTxExplorerUrl } from '../lib/lifi';
 import { generateAddressGradient, getInitials, formatAddress } from '../lib/useENS';
 import { 
   ArrowRight, 
@@ -117,11 +117,18 @@ export default function PayPage() {
 
   // ENS resolution
   const recipientIsENS = intent?.recipient?.endsWith('.eth');
-  const { data: resolvedAddress, isLoading: ensLoading } = useEnsAddress({
+  const { data: resolvedAddress, isLoading: ensLoading, isError: ensError, refetch: refetchEns } = useEnsAddress({
     name: recipientIsENS ? intent?.recipient : undefined,
     chainId: mainnet.id,
   });
-  const finalRecipient = recipientIsENS ? resolvedAddress : intent?.recipient;
+  
+  // For ENS: use resolved address, or fallback to original ENS name if resolution failed but we still want to try
+  const finalRecipient = recipientIsENS 
+    ? (resolvedAddress || (ensError ? undefined : undefined)) // Only proceed with resolved address
+    : intent?.recipient;
+  
+  // ENS resolution status for UI
+  const ensResolutionFailed = recipientIsENS && !ensLoading && !resolvedAddress;
 
   const chainName = chainId ? CHAIN_NAMES[chainId] || `Chain ${chainId}` : 'Unknown';
 
@@ -261,7 +268,7 @@ export default function PayPage() {
             <>
               <hr className="border-slate-200 dark:border-slate-700" />
               <a
-                href={`https://polygonscan.com/tx/${txHash}`}
+                href={getTxExplorerUrl(txHash, chainId)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn-secondary w-full flex items-center justify-center gap-2"
@@ -323,7 +330,15 @@ export default function PayPage() {
                       <Check className="w-4 h-4 text-emerald-500" />
                     </span>
                   ) : (
-                    <span className="text-red-500">{intent.recipient}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="text-amber-600 dark:text-amber-400">{intent.recipient}</span>
+                      <button 
+                        onClick={() => refetchEns()}
+                        className="text-xs px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-500/20"
+                      >
+                        Retry
+                      </button>
+                    </span>
                   )
                 ) : (
                   <span className="font-mono">{formatAddress(intent.recipient)}</span>
@@ -450,23 +465,51 @@ export default function PayPage() {
 
         {/* Get Quote button */}
         {!hasQuote && status === 'idle' && (
-          <button
-            onClick={handleGetQuote}
-            disabled={!isConnected || !finalRecipient || ensLoading}
-            className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {ensLoading ? (
-              <span className="flex items-center justify-center gap-2">
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Resolving...
-              </span>
-            ) : (
-              <span className="flex items-center justify-center gap-2">
-                Continue
-                <ChevronRight className="w-5 h-5" />
-              </span>
+          <>
+            {/* ENS resolution failed warning */}
+            {ensResolutionFailed && (
+              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                    Could not resolve ENS name
+                  </p>
+                  <p className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">
+                    Check your internet connection and try again
+                  </p>
+                </div>
+                <button 
+                  onClick={() => refetchEns()}
+                  className="px-3 py-1.5 rounded-lg bg-amber-200 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 text-sm font-medium hover:bg-amber-300 dark:hover:bg-amber-500/30 transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
             )}
-          </button>
+            
+            <button
+              onClick={handleGetQuote}
+              disabled={!isConnected || !finalRecipient || ensLoading}
+              className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {ensLoading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Resolving ENS...
+                </span>
+              ) : !finalRecipient && recipientIsENS ? (
+                <span className="flex items-center justify-center gap-2">
+                  <AlertCircle className="w-5 h-5" />
+                  ENS Resolution Required
+                </span>
+              ) : (
+                <span className="flex items-center justify-center gap-2">
+                  Continue
+                  <ChevronRight className="w-5 h-5" />
+                </span>
+              )}
+            </button>
+          </>
         )}
       </div>
 

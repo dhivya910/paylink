@@ -27,6 +27,25 @@ export const CHAIN_NAMES: Record<number, string> = {
   11155111: 'Sepolia',
 };
 
+// Block explorer URLs by chain ID
+export const BLOCK_EXPLORERS: Record<number, string> = {
+  1: 'https://etherscan.io',
+  137: 'https://polygonscan.com',
+  42161: 'https://arbiscan.io',
+  8453: 'https://basescan.org',
+  10: 'https://optimistic.etherscan.io',
+  11155111: 'https://sepolia.etherscan.io',
+};
+
+/**
+ * Get the block explorer URL for a transaction
+ */
+export function getTxExplorerUrl(txHash: string, chainId?: number): string {
+  // Default to Sepolia for testnet, or try to detect from tx hash format
+  const explorer = chainId ? BLOCK_EXPLORERS[chainId] : BLOCK_EXPLORERS[11155111];
+  return `${explorer || BLOCK_EXPLORERS[11155111]}/tx/${txHash}`;
+}
+
 /**
  * Initialize LI.FI SDK
  * 
@@ -36,10 +55,20 @@ export const CHAIN_NAMES: Record<number, string> = {
  * - Status tracking for cross-chain transfers
  */
 export function initializeLiFi() {
-  createConfig({
-    integrator: 'Zap-hackmoney',
-  });
+  try {
+    createConfig({
+      integrator: 'Zap-hackmoney',
+    });
+    console.log('✅ LI.FI SDK initialized');
+  } catch (error) {
+    // Don't crash the app if LI.FI fails to initialize (e.g., offline)
+    console.warn('⚠️ LI.FI SDK initialization failed (may be offline):', error);
+  }
 }
 
-// Initialize on module load
-initializeLiFi();
+// Initialize on module load (wrapped in try-catch)
+try {
+  initializeLiFi();
+} catch (e) {
+  console.warn('⚠️ LI.FI SDK init skipped');
+}

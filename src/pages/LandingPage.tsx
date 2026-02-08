@@ -15,7 +15,8 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Trash2
 } from 'lucide-react'
 import { useENSProfile, formatAddress, generateAddressGradient, getInitials } from '../lib/useENS'
 import { copyShareLink } from '../lib/notifications'
@@ -125,12 +126,15 @@ function AddressDisplay({ address, className = '' }: { address: string; classNam
   )
 }
 
-function IntentRow({ intent, isExpanded, onToggle }: { 
+function IntentRow({ intent, isExpanded, onToggle, onDelete }: { 
   intent: Intent
   isExpanded: boolean
-  onToggle: () => void 
+  onToggle: () => void
+  onDelete: (id: string) => void
 }) {
   const [copied, setCopied] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const route = getRouteData(intent.id)
   const isSplit = intent.type === 'split'
   const paymentUrl = `${window.location.origin}/${isSplit ? 'split' : 'pay'}/${intent.id}`
@@ -312,7 +316,7 @@ function IntentRow({ intent, isExpanded, onToggle }: {
           {/* Tx hash or payment link */}
           {intent.status === 'paid' && intent.txHash ? (
             <a
-              href={`https://polygonscan.com/tx/${intent.txHash}`}
+              href={`https://sepolia.etherscan.io/tx/${intent.txHash}`}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 text-sm text-indigo-600 dark:text-indigo-400 hover:underline"
@@ -349,6 +353,38 @@ function IntentRow({ intent, isExpanded, onToggle }: {
                   Open
                 </Link>
               )}
+              
+              {/* Delete button */}
+              {!showDeleteConfirm ? (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(true); }}
+                  className="flex items-center gap-1 text-sm text-red-500 hover:text-red-700 dark:hover:text-red-400 ml-auto"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Revoke
+                </button>
+              ) : (
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(false); }}
+                    className="text-xs px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      setDeleting(true);
+                      onDelete(intent.id);
+                    }}
+                    disabled={deleting}
+                    className="text-xs px-2 py-1 rounded bg-red-500 text-white hover:bg-red-600 disabled:opacity-50 flex items-center gap-1"
+                  >
+                    {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                    {deleting ? 'Deleting...' : 'Confirm'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -372,6 +408,20 @@ export default function LandingPage() {
       })
       .catch(() => setLoading(false))
   }, [])
+
+  const handleDeleteIntent = async (id: string) => {
+    try {
+      const res = await fetch(`http://localhost:3001/intent/${id}`, {
+        method: 'DELETE'
+      })
+      if (!res.ok) throw new Error('Failed to delete')
+      // Remove from local state
+      setIntents(prev => prev.filter(i => i.id !== id))
+      setExpandedId(null)
+    } catch (err) {
+      console.error('Failed to delete intent:', err)
+    }
+  }
 
   const filteredIntents = intents.filter(i => {
     if (filter === 'pending') return i.status === 'unpaid'
@@ -650,6 +700,7 @@ export default function LandingPage() {
                 intent={intent}
                 isExpanded={expandedId === intent.id}
                 onToggle={() => setExpandedId(expandedId === intent.id ? null : intent.id)}
+                onDelete={handleDeleteIntent}
               />
             ))}
           </div>
