@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { useAccount, useChainId, useEnsAddress } from 'wagmi';
+import { useAccount, useChainId, useEnsAddress, useEnsAvatar } from 'wagmi';
 import { mainnet } from 'wagmi/chains';
 import { useLiFiPayment } from '../lib/useLiFiPayment';
+import { useUniswapPayment } from '../lib/useUniswapPayment';
 import { CHAIN_NAMES } from '../lib/lifi';
+import { generateAddressGradient, getInitials, formatAddress } from '../lib/useENS';
 import { 
   ArrowRight, 
   Check,
@@ -14,7 +16,8 @@ import {
   ExternalLink,
   Wallet,
   RefreshCw,
-  ChevronRight
+  ChevronRight,
+  Repeat
 } from 'lucide-react';
 
 interface Intent {
@@ -26,22 +29,91 @@ interface Intent {
   status: 'unpaid' | 'paid';
 }
 
+// ENS Avatar with gradient fallback
+function RecipientAvatar({ address, ensName }: { address: string; ensName?: string }) {
+  const { data: avatar } = useEnsAvatar({
+    name: ensName,
+    chainId: mainnet.id,
+  });
+  
+  if (avatar) {
+    return <img src={avatar} alt={ensName || address} className="w-10 h-10 rounded-full object-cover border-2 border-emerald-200 dark:border-emerald-500/30" />
+  }
+  
+  return (
+    <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${generateAddressGradient(address)} flex items-center justify-center text-white font-bold text-sm border-2 border-emerald-200 dark:border-emerald-500/30`}>
+      {getInitials(ensName || address)}
+    </div>
+  )
+}
+
 export default function PayPage() {
   const { intentId } = useParams();
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const [intent, setIntent] = useState<Intent | null>(null);
   const [intentLoading, setIntentLoading] = useState(true);
+  const [routeType, setRouteType] = useState<'auto' | 'lifi' | 'uniswap'>('auto');
 
+  // LI.FI hook (cross-chain)
   const {
-    status,
-    routeInfo,
-    error,
-    txHash,
-    fetchQuote,
-    executePayment,
-    reset,
+    status: lifiStatus,
+    routeInfo: lifiRouteInfo,
+    error: lifiError,
+    txHash: lifiTxHash,
+    fetchQuote: fetchLifiQuote,
+    executePayment: executeLifiPayment,
+    reset: resetLifi,
   } = useLiFiPayment();
+
+  // Uniswap hook (same-chain)
+  const {
+    status: uniswapStatus,
+    quote: uniswapQuote,
+    error: uniswapError,
+    txHash: uniswapTxHash,
+    fetchQuote: fetchUniswapQuote,
+    executeSwap: executeUniswapSwap,
+    reset: resetUniswap,
+  } = useUniswapPayment();
+
+  /**
+   * Route Selection Logic:
+   * 
+   * UNISWAP is used for:
+   * 1. Testnet (Sepolia) - LI.FI doesn't support testnets
+   * 2. Same-chain swaps - Faster & cheaper than cross-chain
+   * 3. User explicitly selects Uniswap route
+   * 
+   * LI.FI is used for:
+   * 1. Cross-chain payments (different source & destination chain)
+   * 2. When user explicitly selects LI.FI route
+   * 
+   * Benefits of Uniswap for same-chain:
+   * - Lower gas fees (no bridge overhead)
+   * - Faster settlement (single transaction)
+   * - Direct DEX swap without intermediaries
+   */
+  const isTestnet = chainId === 11155111; // Sepolia
+  const isSameChainAsRecipient = chainId === 137; // Recipient on Polygon, payer also on Polygon
+  const useUniswap = isTestnet || routeType === 'uniswap' || (routeType === 'auto' && isSameChainAsRecipient);
+  
+  // Reason for route selection (for UI display)
+  const routeReason = isTestnet 
+    ? 'Testnet (LI.FI not supported)'
+    : isSameChainAsRecipient && routeType === 'auto'
+      ? 'Same-chain swap (faster & cheaper)'
+      : routeType === 'uniswap'
+        ? 'You selected Uniswap'
+        : 'Cross-chain via LI.FI';
+  
+  // Combined state
+  const status = useUniswap ? uniswapStatus : lifiStatus;
+  const error = useUniswap ? uniswapError : lifiError;
+  const txHash = useUniswap ? uniswapTxHash : lifiTxHash;
+  const hasQuote = useUniswap ? !!uniswapQuote : !!lifiRouteInfo;
+
+  const reset = useUniswap ? resetUniswap : resetLifi;
 
   // ENS resolution
   const recipientIsENS = intent?.recipient?.endsWith('.eth');
@@ -69,16 +141,33 @@ export default function PayPage() {
 
   const handleGetQuote = async () => {
     if (!intent || !address || !finalRecipient) return;
-    await fetchQuote({
-      fromChainId: chainId,
-      fromAddress: address,
-      toAddress: finalRecipient,
-      amountUSD: intent.amount,
-    });
+    
+    if (useUniswap) {
+      // Same-chain: use Uniswap
+      await fetchUniswapQuote({
+        chainId,
+        amountUSD: intent.amount,
+        slippage: 0.5,
+      });
+    } else {
+      // Cross-chain: use LI.FI
+      await fetchLifiQuote({
+        fromChainId: chainId,
+        fromAddress: address,
+        toAddress: finalRecipient,
+        amountUSD: intent.amount,
+      });
+    }
   };
 
   const handlePay = async () => {
-    await executePayment();
+    if (!finalRecipient) return;
+    
+    if (useUniswap) {
+      await executeUniswapSwap(finalRecipient);
+    } else {
+      await executeLifiPayment();
+    }
   };
 
   // Update backend on success
@@ -146,9 +235,19 @@ export default function PayPage() {
           <div className="space-y-3">
             <div className="flex justify-between items-center">
               <span className="text-sm text-slate-500">To</span>
-              <span className="text-sm font-mono text-slate-900 dark:text-white">
-                {recipientIsENS ? intent.recipient : `${intent.recipient.slice(0, 8)}...${intent.recipient.slice(-6)}`}
-              </span>
+              <div className="flex items-center gap-2">
+                <RecipientAvatar 
+                  address={finalRecipient || intent.recipient} 
+                  ensName={recipientIsENS ? intent.recipient : undefined} 
+                />
+                <span className="text-sm text-slate-900 dark:text-white">
+                  {recipientIsENS ? (
+                    <span className="font-medium text-emerald-600 dark:text-emerald-400">{intent.recipient}</span>
+                  ) : (
+                    <span className="font-mono">{formatAddress(intent.recipient)}</span>
+                  )}
+                </span>
+              </div>
             </div>
             {intent.note && (
               <div className="flex justify-between items-center">
@@ -176,11 +275,6 @@ export default function PayPage() {
           <button onClick={() => window.location.href = '/'} className="btn-ghost w-full">
             Create New Payment
           </button>
-        </div>
-
-        <div className="flex items-center justify-center gap-2 text-sm text-indigo-600 dark:text-indigo-400 font-medium">
-          <Zap className="w-4 h-4" />
-          <span>Powered by LI.FI</span>
         </div>
       </div>
     );
@@ -211,29 +305,84 @@ export default function PayPage() {
 
         {/* Details */}
         <div className="space-y-3">
+          {/* Recipient with avatar */}
           <div className="flex justify-between items-center">
             <span className="text-sm text-slate-500">To</span>
-            <span className="text-sm text-slate-900 dark:text-white">
-              {recipientIsENS ? (
-                ensLoading ? (
-                  <span className="text-amber-600 dark:text-amber-400">Resolving...</span>
-                ) : resolvedAddress ? (
-                  <span className="flex items-center gap-1.5">
-                    {intent.recipient}
-                    <Check className="w-4 h-4 text-emerald-500" />
-                  </span>
+            <div className="flex items-center gap-2">
+              <RecipientAvatar 
+                address={finalRecipient || intent.recipient} 
+                ensName={recipientIsENS ? intent.recipient : undefined} 
+              />
+              <span className="text-sm text-slate-900 dark:text-white">
+                {recipientIsENS ? (
+                  ensLoading ? (
+                    <span className="text-amber-600 dark:text-amber-400">Resolving...</span>
+                  ) : resolvedAddress ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="font-medium text-emerald-600 dark:text-emerald-400">{intent.recipient}</span>
+                      <Check className="w-4 h-4 text-emerald-500" />
+                    </span>
+                  ) : (
+                    <span className="text-red-500">{intent.recipient}</span>
+                  )
                 ) : (
-                  <span className="text-red-500">{intent.recipient}</span>
-                )
-              ) : (
-                <span className="font-mono">{intent.recipient.slice(0, 10)}...{intent.recipient.slice(-8)}</span>
-              )}
-            </span>
+                  <span className="font-mono">{formatAddress(intent.recipient)}</span>
+                )}
+              </span>
+            </div>
           </div>
           
           <div className="flex justify-between items-center">
             <span className="text-sm text-slate-500">Your Chain</span>
-            <span className="text-sm font-medium text-slate-900 dark:text-white">{chainName}</span>
+            <span className="text-sm font-medium text-slate-900 dark:text-white">
+              {chainName}
+              {isTestnet && (
+                <span className="ml-2 px-1.5 py-0.5 text-xs font-medium bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 rounded">
+                  Testnet
+                </span>
+              )}
+            </span>
+          </div>
+
+          {/* Route type selector */}
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-slate-500">Route</span>
+            <div className="flex items-center gap-1 text-xs">
+              {!isTestnet && (
+                <button
+                  onClick={() => setRouteType('auto')}
+                  className={`px-2 py-1 rounded transition-colors ${
+                    routeType === 'auto' 
+                      ? 'bg-indigo-100 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400' 
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                  }`}
+                >
+                  Auto
+                </button>
+              )}
+              <button
+                onClick={() => setRouteType('uniswap')}
+                className={`px-2 py-1 rounded transition-colors ${
+                  (routeType === 'uniswap' || isTestnet)
+                    ? 'bg-pink-100 dark:bg-pink-500/10 text-pink-700 dark:text-pink-400' 
+                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                }`}
+              >
+                Uniswap
+              </button>
+              {!isTestnet && (
+                <button
+                  onClick={() => setRouteType('lifi')}
+                  className={`px-2 py-1 rounded transition-colors ${
+                    routeType === 'lifi' 
+                      ? 'bg-indigo-100 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-400' 
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                  }`}
+                >
+                  LI.FI
+                </button>
+              )}
+            </div>
           </div>
 
           {intent.note && (
@@ -285,8 +434,22 @@ export default function PayPage() {
           </div>
         )}
 
+        {/* Route type indicator */}
+        {status === 'idle' && !hasQuote && (
+          <div className={`flex items-center justify-center gap-2 p-3 rounded-lg ${
+            useUniswap 
+              ? 'bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20'
+              : 'bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20'
+          }`}>
+            <Repeat className={`w-4 h-4 ${useUniswap ? 'text-emerald-600 dark:text-emerald-400' : 'text-indigo-600 dark:text-indigo-400'}`} />
+            <p className={`text-sm font-medium ${useUniswap ? 'text-emerald-700 dark:text-emerald-400' : 'text-indigo-700 dark:text-indigo-400'}`}>
+              {routeReason}
+            </p>
+          </div>
+        )}
+
         {/* Get Quote button */}
-        {!routeInfo && status === 'idle' && (
+        {!hasQuote && status === 'idle' && (
           <button
             onClick={handleGetQuote}
             disabled={!isConnected || !finalRecipient || ensLoading}
@@ -307,8 +470,86 @@ export default function PayPage() {
         )}
       </div>
 
-      {/* Route preview */}
-      {routeInfo && (
+      {/* Route preview - Uniswap (same-chain) */}
+      {useUniswap && uniswapQuote && (
+        <div className="card space-y-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-pink-100 dark:bg-pink-500/10 border border-pink-200 dark:border-pink-500/20 flex items-center justify-center">
+              <Repeat className="w-5 h-5 text-pink-600 dark:text-pink-400" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-slate-900 dark:text-white">Uniswap Swap</h3>
+              <p className="text-xs text-slate-500">Direct swap on {uniswapQuote.chainName}</p>
+            </div>
+          </div>
+
+          <hr className="border-slate-200 dark:border-slate-700" />
+
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-slate-500">You Pay</span>
+              <span className="text-lg font-semibold text-slate-900 dark:text-white">
+                ~{parseFloat(uniswapQuote.estimatedEthIn).toFixed(6)} ETH
+              </span>
+            </div>
+            
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-slate-500">Max (with {uniswapQuote.slippage}% slippage)</span>
+              <span className="text-sm font-mono text-slate-600 dark:text-slate-400">
+                {parseFloat(uniswapQuote.maxEthIn).toFixed(6)} ETH
+              </span>
+            </div>
+
+            {/* Visual swap indicator */}
+            <div className="flex justify-center py-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-pink-100 dark:bg-pink-900/20 border border-pink-200 dark:border-pink-700 text-pink-600 dark:text-pink-400 text-xs font-medium">
+                <Repeat className="w-3 h-3" />
+                Uniswap V3
+              </span>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-slate-500">Recipient Gets</span>
+              <span className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
+                {uniswapQuote.usdcOut} USDC
+              </span>
+            </div>
+          </div>
+
+          <hr className="border-slate-200 dark:border-slate-700" />
+
+          {/* Pay button */}
+          <button
+            onClick={handlePay}
+            disabled={isProcessing}
+            className="btn-primary w-full text-lg py-4 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {status === 'awaiting-approval' ? (
+              <span className="flex items-center justify-center gap-2">
+                <Wallet className="w-5 h-5" />
+                Confirm in Wallet
+              </span>
+            ) : status === 'executing' ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Swapping...
+              </span>
+            ) : (
+              <span className="flex items-center justify-center gap-2">
+                Pay ${intent.amount.toFixed(2)}
+                <ArrowRight className="w-5 h-5" />
+              </span>
+            )}
+          </button>
+
+          <p className="text-center text-xs text-slate-500">
+            One signature • Uniswap V3 swap
+          </p>
+        </div>
+      )}
+
+      {/* Route preview - LI.FI (cross-chain) */}
+      {!useUniswap && lifiRouteInfo && (
         <div className="card space-y-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 flex items-center justify-center">
@@ -326,13 +567,13 @@ export default function PayPage() {
             <div className="flex justify-between items-center">
               <span className="text-sm text-slate-500">You Pay</span>
               <span className="text-lg font-semibold text-slate-900 dark:text-white">
-                ~{(Number(routeInfo.fromAmount) / 1e18).toFixed(6)} {routeInfo.fromToken.split(' ').pop()}
+                ~{(Number(lifiRouteInfo.fromAmount) / 1e18).toFixed(6)} {lifiRouteInfo.fromToken.split(' ').pop()}
               </span>
             </div>
             
             <div className="flex justify-between items-center">
               <span className="text-sm text-slate-500">From</span>
-              <span className="text-sm font-medium text-slate-900 dark:text-white">{CHAIN_NAMES[routeInfo.fromChainId]}</span>
+              <span className="text-sm font-medium text-slate-900 dark:text-white">{CHAIN_NAMES[lifiRouteInfo.fromChainId]}</span>
             </div>
 
             {/* Visual bridge indicator */}
@@ -346,18 +587,18 @@ export default function PayPage() {
             <div className="flex justify-between items-center">
               <span className="text-sm text-slate-500">Recipient Gets</span>
               <span className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
-                {(Number(routeInfo.toAmount) / 1e6).toFixed(2)} USDC
+                {(Number(lifiRouteInfo.toAmount) / 1e6).toFixed(2)} USDC
               </span>
             </div>
             
             <div className="flex justify-between items-center">
               <span className="text-sm text-slate-500">On</span>
-              <span className="text-sm font-medium text-slate-900 dark:text-white">{CHAIN_NAMES[routeInfo.toChainId]}</span>
+              <span className="text-sm font-medium text-slate-900 dark:text-white">{CHAIN_NAMES[lifiRouteInfo.toChainId]}</span>
             </div>
             
             <div className="flex justify-between items-center">
               <span className="text-sm text-slate-500">Est. Fees</span>
-              <span className="text-sm font-mono text-slate-600 dark:text-slate-400">~${routeInfo.estimatedGasUSD}</span>
+              <span className="text-sm font-mono text-slate-600 dark:text-slate-400">~${lifiRouteInfo.estimatedGasUSD}</span>
             </div>
           </div>
 
@@ -405,9 +646,16 @@ export default function PayPage() {
         </span>
       </div>
 
-      <div className="flex items-center justify-center gap-2 text-sm text-indigo-600 dark:text-indigo-400 font-medium">
-        <Zap className="w-4 h-4" />
-        <span>Powered by LI.FI</span>
+      <div className="flex items-center justify-center gap-3 text-sm font-medium">
+        <span className="flex items-center gap-1.5 text-pink-600 dark:text-pink-400">
+          <Repeat className="w-4 h-4" />
+          Uniswap
+        </span>
+        <span className="text-slate-300 dark:text-slate-700">+</span>
+        <span className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400">
+          <Zap className="w-4 h-4" />
+          LI.FI
+        </span>
       </div>
     </div>
   );
