@@ -4,6 +4,7 @@ import LandingPage from './pages/LandingPage'
 import CreatePage from './pages/CreatePage'
 import PayPage from './pages/PayPage'
 import SplitPage from './pages/SplitPage'
+import SplitDetailPage from './pages/SplitDetailPage'
 import { Zap, Sun, Moon} from 'lucide-react'
 import { useEffect, useState } from 'react'
 
@@ -126,6 +127,7 @@ function App() {
           <Route path="/create" element={<CreatePage />} />
           <Route path="/pay/:intentId" element={<PayPage />} />
           <Route path="/split" element={<SplitPage />} />
+          <Route path="/split/:splitId" element={<SplitDetailPage />} />
         </Routes>
       </main>
 
@@ -140,17 +142,6 @@ function App() {
               <span className="font-medium text-gray-700 dark:text-gray-300">Zap</span>
               <span className="text-gray-300 dark:text-gray-700">·</span>
               <span>Built for ETHGlobal HackMoney</span>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <a 
-                href="https://li.fi" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-xs text-gray-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-              >
-                Powered by LI.FI
-              </a>
             </div>
           </div>
         </div>

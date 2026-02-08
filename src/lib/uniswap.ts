@@ -2,20 +2,64 @@ import { Token } from '@uniswap/sdk-core';
 import { encodeFunctionData } from 'viem';
 
 // Chain configurations
-export const UNISWAP_CONFIG = {
-  // Uniswap V3 Router addresses 
-  // Sepolia uses different addresses than mainnet
-  SWAP_ROUTER_02: '0x3bFA4769FB09eefC5a80d6E87c3B9C650f7Ae48E' as const, // Sepolia SwapRouter02
-  QUOTER_V2: '0xEd1f6473345F45b75F8179591dd5bA1888cf2FB3' as const,       // Sepolia QuoterV2
-  
-  // Pool fees (in hundredths of a bip, e.g., 3000 = 0.3%)
-  FEE_TIERS: {
-    LOWEST: 100,   // 0.01% - stable pairs
-    LOW: 500,      // 0.05% - stable pairs
-    MEDIUM: 3000,  // 0.3%  - most pairs
-    HIGH: 10000,   // 1%    - exotic pairs
+export const UNISWAP_CONFIG: Record<number, { SWAP_ROUTER_02: `0x${string}`; QUOTER_V2: `0x${string}` }> = {
+  // Sepolia testnet
+  11155111: {
+    SWAP_ROUTER_02: '0x3bFA4769FB09eefC5a80d6E87c3B9C650f7Ae48E',
+    QUOTER_V2: '0xEd1f6473345F45b75F8179591dd5bA1888cf2FB3',
   },
+  // Ethereum mainnet
+  1: {
+    SWAP_ROUTER_02: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
+    QUOTER_V2: '0x61fFE014bA17989E743c5F6cB21bF9697530B21e',
+  },
+  // Polygon
+  137: {
+    SWAP_ROUTER_02: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
+    QUOTER_V2: '0x61fFE014bA17989E743c5F6cB21bF9697530B21e',
+  },
+  // Arbitrum
+  42161: {
+    SWAP_ROUTER_02: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
+    QUOTER_V2: '0x61fFE014bA17989E743c5F6cB21bF9697530B21e',
+  },
+  // Base
+  8453: {
+    SWAP_ROUTER_02: '0x2626664c2603336E57B271c5C0b26F421741e481',
+    QUOTER_V2: '0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a',
+  },
+  // Optimism
+  10: {
+    SWAP_ROUTER_02: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45',
+    QUOTER_V2: '0x61fFE014bA17989E743c5F6cB21bF9697530B21e',
+  },
+};
+
+// Pool fees (in hundredths of a bip, e.g., 3000 = 0.3%)
+export const FEE_TIERS = {
+  LOWEST: 100,   // 0.01% - stable pairs (USDC/USDT)
+  LOW: 500,      // 0.05% - stable pairs
+  MEDIUM: 3000,  // 0.3%  - most pairs (ETH/USDC)
+  HIGH: 10000,   // 1%    - exotic pairs
 } as const;
+
+/**
+ * Supported chains for Uniswap V3 swaps
+ * 
+ * Use Cases for Uniswap:
+ * 1. TESTNET SUPPORT - LI.FI doesn't support testnets, Uniswap does
+ * 2. SAME-CHAIN SWAPS - User pays with ETH, recipient gets USDC on same chain
+ *    - Faster than cross-chain (single transaction)
+ *    - Lower gas fees (no bridge overhead)
+ *    - Direct DEX swap without intermediaries
+ * 3. TOKEN FLEXIBILITY - User can pay with any token that has a Uniswap pool
+ */
+export const SUPPORTED_UNISWAP_CHAINS = [11155111, 1, 137, 42161, 8453, 10] as const;
+
+// Check if chain supports Uniswap swaps
+export function isUniswapSupported(chainId: number): boolean {
+  return SUPPORTED_UNISWAP_CHAINS.includes(chainId as typeof SUPPORTED_UNISWAP_CHAINS[number]);
+}
 
 // USDC token addresses by chain (Sepolia uses test USDC)
 export const USDC_TOKENS: Record<number, Token> = {
@@ -121,8 +165,9 @@ export function buildEthToUsdcSwap(params: {
 
   const weth = WETH_TOKENS[chainId];
   const usdc = USDC_TOKENS[chainId];
+  const config = UNISWAP_CONFIG[chainId];
 
-  if (!weth || !usdc) {
+  if (!weth || !usdc || !config) {
     throw new Error(`Unsupported chain: ${chainId}`);
   }
 
@@ -130,7 +175,7 @@ export function buildEthToUsdcSwap(params: {
   const swapCalldata = buildSwapExactOutputSingle({
     tokenIn: weth,
     tokenOut: usdc,
-    fee: UNISWAP_CONFIG.FEE_TIERS.MEDIUM, // 0.3% fee tier
+    fee: FEE_TIERS.MEDIUM, // 0.3% fee tier
     recipient,
     amountOut: amountOutUsdc,
     amountInMaximum: amountInMaxEth,
@@ -164,7 +209,7 @@ export function buildEthToUsdcSwap(params: {
   });
 
   return {
-    to: UNISWAP_CONFIG.SWAP_ROUTER_02,
+    to: config.SWAP_ROUTER_02,
     data: multicallData,
     value: amountInMaxEth,
   };
@@ -176,15 +221,4 @@ export function buildEthToUsdcSwap(params: {
 export function calculateMaxInput(estimatedAmount: bigint, slippagePercent: number): bigint {
   const slippageBps = BigInt(Math.floor(slippagePercent * 100));
   return estimatedAmount + (estimatedAmount * slippageBps) / 10000n;
-}
-
-/**
- * Format token amount for display
- */
-export function formatTokenAmount(amount: bigint, decimals: number): string {
-  const divisor = 10n ** BigInt(decimals);
-  const whole = amount / divisor;
-  const fraction = amount % divisor;
-  const fractionStr = fraction.toString().padStart(decimals, '0').slice(0, 4);
-  return `${whole}.${fractionStr}`;
 }

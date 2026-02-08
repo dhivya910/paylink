@@ -176,12 +176,6 @@ export default function CreatePage() {
             </a>
           </div>
         </div>
-
-        {/* LI.FI branding */}
-        <div className="flex items-center justify-center gap-2 text-sm text-indigo-600 dark:text-indigo-400 font-medium mt-6">
-          <Zap className="w-4 h-4" />
-          <span>Powered by LI.FI</span>
-        </div>
       </div>
     );
   }

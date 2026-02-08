@@ -14,8 +14,12 @@ import {
   Copy,
   ChevronDown,
   ChevronUp,
-  Loader2
+  Loader2,
+  AlertCircle
 } from 'lucide-react'
+import { useENSProfile, formatAddress, generateAddressGradient, getInitials } from '../lib/useENS'
+import { copyShareLink } from '../lib/notifications'
+import { ShareButton } from '../components/ShareMenu'
 
 // Types matching backend
 interface Participant {
@@ -45,7 +49,6 @@ const features = [
   { icon: Globe, label: 'Cross-chain' },
   { icon: Wallet, label: 'Any token' },
   { icon: Shield, label: 'Non-custodial' },
-  { icon: Zap, label: 'Powered by LI.FI' },
 ]
 
 // Mock route data for display (in production, store this with the intent)
@@ -64,6 +67,64 @@ function getRouteData(intentId: string) {
   return mockRouteData[intentId]
 }
 
+// Check if address is valid for ENS lookup
+function isValidForENS(address: string): boolean {
+  if (!address) return false
+  if (address.endsWith('.eth')) return address.length > 4
+  return /^0x[a-fA-F0-9]{40}$/.test(address)
+}
+
+// ENS Avatar with gradient fallback - only looks up if valid
+function ENSAvatar({ address, size = 'sm' }: { address: string; size?: 'sm' | 'md' }) {
+  const shouldLookup = isValidForENS(address)
+  const { avatar, name } = useENSProfile(shouldLookup ? address as `0x${string}` : undefined)
+  const sizeClass = size === 'sm' ? 'w-5 h-5 text-[8px]' : 'w-7 h-7 text-xs'
+  
+  if (avatar) {
+    return <img src={avatar} alt={name || address} className={`${sizeClass} rounded-full object-cover`} />
+  }
+  
+  return (
+    <div className={`${sizeClass} rounded-full bg-gradient-to-br ${generateAddressGradient(address)} flex items-center justify-center text-white font-bold`}>
+      {getInitials(name || address)}
+    </div>
+  )
+}
+
+// Address display with ENS resolution - no blocking loading state
+function AddressDisplay({ address, className = '' }: { address: string; className?: string }) {
+  const shouldLookup = isValidForENS(address)
+  const { name } = useENSProfile(shouldLookup ? address as `0x${string}` : undefined)
+  
+  // For ENS names entered directly
+  if (address.endsWith('.eth')) {
+    return (
+      <span className={`flex items-center gap-1.5 ${className}`}>
+        <ENSAvatar address={address} />
+        <span className="text-emerald-600 dark:text-emerald-400 font-medium">{address}</span>
+      </span>
+    )
+  }
+  
+  // For addresses that resolved to ENS names
+  if (name) {
+    return (
+      <span className={`flex items-center gap-1.5 ${className}`}>
+        <ENSAvatar address={address} />
+        <span className="text-emerald-600 dark:text-emerald-400 font-medium">{name}</span>
+      </span>
+    )
+  }
+  
+  // Default: show formatted address
+  return (
+    <span className={`flex items-center gap-1.5 ${className}`}>
+      <ENSAvatar address={address} />
+      <span className="font-mono">{formatAddress(address)}</span>
+    </span>
+  )
+}
+
 function IntentRow({ intent, isExpanded, onToggle }: { 
   intent: Intent
   isExpanded: boolean
@@ -73,6 +134,9 @@ function IntentRow({ intent, isExpanded, onToggle }: {
   const route = getRouteData(intent.id)
   const isSplit = intent.type === 'split'
   const paymentUrl = `${window.location.origin}/${isSplit ? 'split' : 'pay'}/${intent.id}`
+  const unpaidCount = isSplit && intent.participants 
+    ? intent.participants.filter(p => !p.paid).length 
+    : 0
 
   const copyLink = () => {
     navigator.clipboard.writeText(paymentUrl)
@@ -162,9 +226,7 @@ function IntentRow({ intent, isExpanded, onToggle }: {
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
               <p className="text-xs text-gray-500 mb-1">Recipient</p>
-              <p className="text-sm font-mono text-gray-900 dark:text-white truncate">
-                {intent.recipient}
-              </p>
+              <AddressDisplay address={intent.recipient} className="text-sm text-gray-900 dark:text-white" />
             </div>
             <div>
               <p className="text-xs text-gray-500 mb-1">Created</p>
@@ -201,9 +263,7 @@ function IntentRow({ intent, isExpanded, onToggle }: {
                       ) : (
                         <Clock className="w-3.5 h-3.5 text-amber-500" />
                       )}
-                      <span className="font-mono text-gray-600 dark:text-gray-400">
-                        {p.address.slice(0, 6)}...{p.address.slice(-4)}
-                      </span>
+                      <AddressDisplay address={p.address} className="text-gray-600 dark:text-gray-400" />
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-gray-900 dark:text-white font-medium">
@@ -213,6 +273,38 @@ function IntentRow({ intent, isExpanded, onToggle }: {
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Notification actions for unsettled splits */}
+          {isSplit && intent.status !== 'paid' && (
+            <div className="mb-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-500/5 border border-amber-200 dark:border-amber-500/20">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                  <span className="text-sm text-amber-700 dark:text-amber-400">
+                    {unpaidCount} {unpaidCount === 1 ? 'participant' : 'participants'} haven't paid
+                  </span>
+                </div>
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                  <ShareButton
+                    splitId={intent.id}
+                    amount={intent.amount}
+                    description={intent.note}
+                    className="p-2 rounded-full hover:bg-indigo-100 dark:hover:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 transition-colors"
+                  />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      copyShareLink(intent.id)
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    Copy Link
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -229,7 +321,7 @@ function IntentRow({ intent, isExpanded, onToggle }: {
               View transaction
             </a>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={(e) => { e.stopPropagation(); copyLink(); }}
                 className="flex items-center gap-2 text-sm text-indigo-600 dark:text-indigo-400 hover:underline"
@@ -237,6 +329,16 @@ function IntentRow({ intent, isExpanded, onToggle }: {
                 {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                 {copied ? 'Copied!' : 'Copy link'}
               </button>
+              {isSplit && (
+                <Link
+                  to={`/split/${intent.id}`}
+                  className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  View Split
+                </Link>
+              )}
               {!isSplit && (
                 <Link
                   to={`/pay/${intent.id}`}
@@ -331,6 +433,126 @@ export default function LandingPage() {
           <ArrowRight className="w-5 h-5 text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors" />
         </Link>
       </section>
+
+      {/* Your Splits - GPay style */}
+      {intents.filter(i => i.type === 'split').length > 0 && (
+        <section className="card p-6 mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-violet-600 dark:text-violet-400" />
+              <h3 className="font-semibold text-gray-900 dark:text-white">Your Splits</h3>
+            </div>
+            <Link 
+              to="/split" 
+              className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+            >
+              Create new
+            </Link>
+          </div>
+          
+          <div className="space-y-3">
+            {intents
+              .filter(i => i.type === 'split')
+              .sort((a, b) => {
+                // Show unsettled first
+                if (a.status === 'paid' && b.status !== 'paid') return 1
+                if (a.status !== 'paid' && b.status === 'paid') return -1
+                return b.createdAt - a.createdAt
+              })
+              .map(split => {
+                const unpaid = split.participants?.filter(p => !p.paid).length || 0
+                const total = split.totalParticipants || 0
+                const isSettled = split.status === 'paid'
+                const progressPercent = total > 0 ? ((total - unpaid) / total) * 100 : 0
+                
+                return (
+                  <Link
+                    key={split.id}
+                    to={`/split/${split.id}`}
+                    className={`block p-4 rounded-xl border transition-all hover:shadow-md ${
+                      isSettled 
+                        ? 'bg-emerald-50 dark:bg-emerald-500/5 border-emerald-200 dark:border-emerald-500/20' 
+                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-violet-300 dark:hover:border-violet-600'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-gray-900 dark:text-white">
+                            ${split.amount.toFixed(2)} {split.token}
+                          </span>
+                          {isSettled ? (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-medium">
+                              ✓ Settled
+                            </span>
+                          ) : (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium">
+                              {unpaid} pending
+                            </span>
+                          )}
+                        </div>
+                        {split.note && (
+                          <p className="text-sm text-gray-500 mt-0.5">{split.note}</p>
+                        )}
+                      </div>
+                      
+                      {/* Share button for unsettled */}
+                      {!isSettled && (
+                        <div onClick={(e) => { e.preventDefault(); e.stopPropagation() }}>
+                          <ShareButton
+                            splitId={split.id}
+                            amount={split.amount}
+                            description={split.note}
+                            className="p-2 rounded-full hover:bg-violet-100 dark:hover:bg-violet-500/10 text-violet-600 dark:text-violet-400 transition-colors"
+                          />
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Progress bar */}
+                    <div className="mb-2">
+                      <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full transition-all duration-500 ${
+                            isSettled ? 'bg-emerald-500' : 'bg-violet-500'
+                          }`}
+                          style={{ width: `${progressPercent}%` }}
+                        />
+                      </div>
+                    </div>
+                    
+                    {/* Participants avatars */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex -space-x-2">
+                        {split.participants?.slice(0, 5).map((p, i) => (
+                          <div
+                            key={i}
+                            className={`w-6 h-6 rounded-full border-2 border-white dark:border-gray-800 flex items-center justify-center text-[8px] font-bold text-white ${
+                              p.paid 
+                                ? 'bg-emerald-500' 
+                                : `bg-gradient-to-br ${generateAddressGradient(p.address)}`
+                            }`}
+                            title={p.paid ? `${formatAddress(p.address)} - Paid` : formatAddress(p.address)}
+                          >
+                            {p.paid ? <Check className="w-3 h-3" /> : getInitials(p.address)}
+                          </div>
+                        ))}
+                        {(split.participants?.length || 0) > 5 && (
+                          <div className="w-6 h-6 rounded-full border-2 border-white dark:border-gray-800 bg-gray-300 dark:bg-gray-600 flex items-center justify-center text-[8px] font-bold text-gray-600 dark:text-gray-300">
+                            +{(split.participants?.length || 0) - 5}
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-xs text-gray-500">
+                        {total - unpaid}/{total} paid
+                      </span>
+                    </div>
+                  </Link>
+                )
+              })}
+          </div>
+        </section>
+      )}
 
       {/* Payment Requests */}
       <section className="card p-6 mb-8">
