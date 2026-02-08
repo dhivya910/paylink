@@ -41,9 +41,11 @@ export const BLOCK_EXPLORERS: Record<number, string> = {
  * Get the block explorer URL for a transaction
  */
 export function getTxExplorerUrl(txHash: string, chainId?: number): string {
-  // Default to Sepolia for testnet, or try to detect from tx hash format
+  console.log('getTxExplorerUrl called with:', { txHash, chainId });
   const explorer = chainId ? BLOCK_EXPLORERS[chainId] : BLOCK_EXPLORERS[11155111];
-  return `${explorer || BLOCK_EXPLORERS[11155111]}/tx/${txHash}`;
+  const url = `${explorer || BLOCK_EXPLORERS[11155111]}/tx/${txHash}`;
+  console.log('Explorer URL:', url);
+  return url;
 }
 
 /**

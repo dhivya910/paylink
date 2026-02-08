@@ -117,11 +117,9 @@ export function formatAddress(address: string | undefined): string {
 /**
  * Generate a gradient from an address for avatar fallback
  */
-export function generateAddressGradient(address: string): string {
-  if (!address) return 'from-gray-400 to-gray-500';
+export function generateAddressGradient(input: string): string {
+  if (!input) return 'from-gray-400 to-gray-500';
   
-  // Use address bytes to generate colors
-  const hash = address.toLowerCase().replace('0x', '');
   const colors = [
     ['from-indigo-400', 'to-purple-500'],
     ['from-pink-400', 'to-rose-500'],
@@ -131,7 +129,20 @@ export function generateAddressGradient(address: string): string {
     ['from-violet-400', 'to-fuchsia-500'],
   ];
   
-  const index = parseInt(hash.slice(0, 8), 16) % colors.length;
+  // Handle ENS names - use simple string hash
+  if (input.endsWith('.eth') || !input.startsWith('0x')) {
+    let hash = 0;
+    for (let i = 0; i < input.length; i++) {
+      hash = ((hash << 5) - hash) + input.charCodeAt(i);
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    const index = Math.abs(hash) % colors.length;
+    return `${colors[index][0]} ${colors[index][1]}`;
+  }
+  
+  // Use address bytes to generate colors
+  const hexHash = input.toLowerCase().replace('0x', '');
+  const index = parseInt(hexHash.slice(0, 8), 16) % colors.length;
   return `${colors[index][0]} ${colors[index][1]}`;
 }
 

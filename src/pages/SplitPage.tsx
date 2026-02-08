@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAccount } from 'wagmi'
+import { isAddress } from 'viem'
 import { Users, Plus, Trash2, Copy, Check, ArrowLeft, Loader2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useENSProfile, formatAddress, generateAddressGradient, getInitials } from '../lib/useENS'
@@ -32,6 +33,127 @@ function ENSAvatar({ address, size = 'sm' }: { address: string; size?: 'sm' | 'm
   return (
     <div className={`${sizeClass} rounded-full bg-gradient-to-br ${generateAddressGradient(address)} flex items-center justify-center text-white font-medium`}>
       {getInitials(name || address)}
+    </div>
+  )
+}
+
+// Participant input with ENS validation (using ENS metadata service to avoid CORS)
+function ParticipantInput({ 
+  value, 
+  onChange, 
+  onValidationChange,
+  placeholder 
+}: { 
+  value: string; 
+  onChange: (v: string) => void;
+  onValidationChange?: (isValid: boolean) => void;
+  placeholder?: string;
+}) {
+  const isENS = value.endsWith('.eth') && value.length > 4
+  const isValidAddress = !!(value && isAddress(value))
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [hasAvatar, setHasAvatar] = useState(false)
+  const [isVerified, setIsVerified] = useState(false)
+  const [isChecking, setIsChecking] = useState(false)
+  
+  // Use ref to avoid infinite loops with callback in dependencies
+  const onValidationChangeRef = useRef(onValidationChange)
+  onValidationChangeRef.current = onValidationChange
+
+  useEffect(() => {
+    if (!isENS) {
+      setAvatarUrl(null)
+      setHasAvatar(false)
+      setIsVerified(false)
+      setIsChecking(false)
+      return
+    }
+    
+    setIsChecking(true)
+    setIsVerified(false)
+    setHasAvatar(false)
+    
+    // Use ENS metadata service for avatar
+    const avatarUrlStr = `https://metadata.ens.domains/mainnet/avatar/${value}`
+    setAvatarUrl(avatarUrlStr)
+    
+    // Check avatar (for display purposes)
+    const img = new Image()
+    img.onload = () => setHasAvatar(true)
+    img.onerror = () => setHasAvatar(false)
+    img.src = avatarUrlStr
+    
+    // Use ensideas API to verify ENS registration (more reliable)
+    fetch(`https://api.ensideas.com/ens/resolve/${value}`)
+      .then(res => {
+        if (!res.ok) throw new Error('Not found')
+        return res.json()
+      })
+      .then(data => {
+        // If we get an address back, ENS is registered
+        const valid = !!(data && data.address)
+        setIsVerified(valid)
+        setIsChecking(false)
+        onValidationChangeRef.current?.(valid)
+      })
+      .catch(() => {
+        setIsVerified(false)
+        setIsChecking(false)
+        onValidationChangeRef.current?.(false)
+      })
+  }, [value, isENS])
+
+  // Notify parent of validation state for non-ENS values
+  useEffect(() => {
+    if (!isENS && value) {
+      onValidationChangeRef.current?.(isValidAddress)
+    } else if (!value) {
+      onValidationChangeRef.current?.(false)
+    }
+  }, [value, isENS, isValidAddress])
+
+  const showError = isENS && !isChecking && !isVerified
+  const showSuccess = (isENS && isVerified) || isValidAddress
+
+  return (
+    <div className="space-y-1 flex-1">
+      <div className="relative">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder || "0x... or vitalik.eth"}
+          className={`input py-2.5 text-sm font-mono ${isENS ? 'pr-10' : ''} ${showError ? 'border-red-300 dark:border-red-500/50' : showSuccess ? 'border-emerald-300 dark:border-emerald-500/50' : ''}`}
+        />
+        {isENS && (
+          <div className="absolute right-2 top-1/2 -translate-y-1/2">
+            {isChecking ? (
+              <div className="w-6 h-6 flex items-center justify-center">
+                <div className="w-4 h-4 border-2 border-slate-300 border-t-indigo-500 rounded-full animate-spin" />
+              </div>
+            ) : (
+              <div className={`w-6 h-6 rounded-full ${isVerified ? 'ring-2 ring-emerald-500' : 'ring-2 ring-red-400'} p-0.5`}>
+                {avatarUrl && hasAvatar ? (
+                  <img 
+                    src={avatarUrl} 
+                    alt={value} 
+                    className="w-full h-full rounded-full object-cover"
+                  />
+                ) : (
+                  <div className={`w-full h-full rounded-full bg-gradient-to-br ${generateAddressGradient(value)} flex items-center justify-center text-white text-[8px] font-bold`}>
+                    {getInitials(value)}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      {showError && (
+        <p className="text-xs text-red-500 dark:text-red-400">
+          "{value}" is not a registered ENS name
+        </p>
+      )}
     </div>
   )
 }
@@ -78,6 +200,7 @@ export default function SplitPage() {
   const [participants, setParticipants] = useState<Participant[]>([
     { id: '1', address: '', share: 100 },
   ])
+  const [participantValidations, setParticipantValidations] = useState<Record<string, boolean>>({})
   const [copied, setCopied] = useState(false)
   const [splitCreated, setSplitCreated] = useState(false)
   const [splitId, setSplitId] = useState<string | null>(null)
@@ -108,6 +231,14 @@ export default function SplitPage() {
 
   const totalShares = participants.reduce((sum, p) => sum + p.share, 0)
 
+  const updateParticipantValidation = (id: string, isValid: boolean) => {
+    setParticipantValidations(prev => ({ ...prev, [id]: isValid }))
+  }
+
+  const allParticipantsValid = participants.every(p => 
+    p.address.trim() && participantValidations[p.id] === true
+  )
+
   const handleCreateSplit = async () => {
     setError(null)
     
@@ -123,8 +254,8 @@ export default function SplitPage() {
       return
     }
 
-    if (!participants.every(p => p.address)) {
-      setError('Please fill in all participant addresses')
+    if (!allParticipantsValid) {
+      setError('Please enter valid addresses or registered ENS names for all participants')
       return
     }
 
@@ -326,17 +457,14 @@ export default function SplitPage() {
 
           <div className="space-y-2">
             {participants.map((participant, index) => (
-              <div key={participant.id} className="flex items-center gap-2">
-                <div className="flex-1">
-                  <input
-                    type="text"
-                    value={participant.address}
-                    onChange={(e) => updateParticipant(participant.id, 'address', e.target.value)}
-                    placeholder={`Participant ${index + 1} address or ENS`}
-                    className="input py-2.5 text-sm"
-                  />
-                </div>
-                <div className="w-20">
+              <div key={participant.id} className="flex items-start gap-2">
+                <ParticipantInput
+                  value={participant.address}
+                  onChange={(v) => updateParticipant(participant.id, 'address', v)}
+                  onValidationChange={(isValid) => updateParticipantValidation(participant.id, isValid)}
+                  placeholder={`Participant ${index + 1} address or ENS`}
+                />
+                <div className="w-20 flex-shrink-0">
                   <div className="relative">
                     <input
                       type="number"
@@ -350,7 +478,7 @@ export default function SplitPage() {
                 {participants.length > 2 && (
                   <button
                     onClick={() => removeParticipant(participant.id)}
-                    className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+                    className="p-2 text-slate-400 hover:text-red-500 transition-colors mt-0.5"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -392,7 +520,7 @@ export default function SplitPage() {
         {/* Submit */}
         <button
           onClick={handleCreateSplit}
-          disabled={loading || !totalAmount || !participants.every(p => p.address.trim()) || totalShares !== 100}
+          disabled={loading || !totalAmount || !allParticipantsValid || totalShares !== 100}
           className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (
@@ -406,11 +534,11 @@ export default function SplitPage() {
         </button>
 
         {/* Validation hints */}
-        {(!totalAmount || !participants.every(p => p.address.trim()) || totalShares !== 100) && (
+        {(!totalAmount || !allParticipantsValid || totalShares !== 100) && (
           <div className="text-xs text-slate-500 space-y-1">
             {!totalAmount && <p>• Enter a total amount</p>}
-            {!participants.every(p => p.address.trim()) && (
-              <p>• Fill in all {participants.length} participant addresses ({participants.filter(p => p.address.trim()).length}/{participants.length} filled)</p>
+            {!allParticipantsValid && (
+              <p>• Enter valid addresses or registered ENS names for all participants</p>
             )}
             {totalShares !== 100 && <p>• Shares must total 100% (currently {totalShares}%)</p>}
           </div>

@@ -400,13 +400,18 @@ export default function LandingPage() {
   const [filter, setFilter] = useState<'all' | 'pending' | 'partial' | 'paid'>('all')
 
   useEffect(() => {
+    console.log('Fetching intents...')
     fetch('http://localhost:3001/intents')
       .then(r => r.json())
       .then(data => {
+        console.log('Intents received:', data)
         setIntents(Array.isArray(data) ? data : [])
         setLoading(false)
       })
-      .catch(() => setLoading(false))
+      .catch((err) => {
+        console.error('Failed to fetch intents:', err)
+        setLoading(false)
+      })
   }, [])
 
   const handleDeleteIntent = async (id: string) => {

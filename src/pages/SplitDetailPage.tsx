@@ -9,12 +9,17 @@ import {
   Users, 
   Loader2,
   AlertCircle,
-  Trash2
+  Trash2,
+  Wallet,
+  ArrowRight,
+  X
 } from 'lucide-react'
-import { useAccount } from 'wagmi'
+import { useAccount, useChainId } from 'wagmi'
 import { useENSProfile, formatAddress, generateAddressGradient, getInitials } from '../lib/useENS'
 import { showToast } from '../lib/notifications'
 import { ShareMenu } from '../components/ShareMenu'
+import { useUniswapPayment } from '../lib/useUniswapPayment'
+import { getTxExplorerUrl } from '../lib/lifi'
 
 interface Participant {
   address: string
@@ -80,13 +85,26 @@ function AddressDisplay({ address, className = '' }: { address: string; classNam
 export default function SplitDetailPage() {
   const { splitId } = useParams<{ splitId: string }>()
   const navigate = useNavigate()
-  const { address: userAddress } = useAccount()
+  const { address: userAddress, isConnected } = useAccount()
+  const chainId = useChainId()
   const [split, setSplit] = useState<SplitIntent | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [closing, setClosing] = useState(false)
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
+  const [showPayModal, setShowPayModal] = useState(false)
+  const [txChainId, setTxChainId] = useState<number | null>(null)
+
+  // Uniswap payment hook
+  const {
+    status: paymentStatus,
+    quote,
+    error: paymentError,
+    txHash,
+    fetchQuote,
+    executeSwap,
+  } = useUniswapPayment()
 
   useEffect(() => {
     if (!splitId) return
@@ -113,6 +131,54 @@ export default function SplitDetailPage() {
     showToast('Link copied!', 'success')
     setTimeout(() => setCopied(false), 2000)
   }
+
+  // Check if current user is a participant (needed for handlers)
+  const userParticipant = userAddress && split
+    ? split.participants.find(p => p.address.toLowerCase() === userAddress.toLowerCase())
+    : null
+
+  // Get quote for user's share
+  const handleGetQuote = async () => {
+    if (!split || !userParticipant) return
+    const shareAmount = (split.amount * userParticipant.share) / 100
+    
+    await fetchQuote({
+      chainId,
+      amountUSD: shareAmount,
+      slippage: 0.5,
+    })
+    setShowPayModal(true)
+  }
+
+  // Execute the payment
+  const handlePay = async () => {
+    if (!split || !splitId || !userAddress) return
+    
+    setTxChainId(chainId)
+    await executeSwap(split.recipient)
+  }
+
+  // Mark participant as paid in backend after successful tx
+  useEffect(() => {
+    if (paymentStatus === 'success' && txHash && splitId && userAddress) {
+      fetch(`http://localhost:3001/split/${splitId}/pay`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          participantAddress: userAddress,
+          txHash 
+        }),
+      })
+        .then(r => r.json())
+        .then(data => {
+          setSplit(data.split)
+          showToast('Payment successful!', 'success')
+        })
+        .catch(err => {
+          console.error('Failed to update split:', err)
+        })
+    }
+  }, [paymentStatus, txHash, splitId, userAddress])
 
   const handleCloseSplit = async () => {
     if (!splitId) return
@@ -163,11 +229,6 @@ export default function SplitDetailPage() {
   const unpaidCount = split.participants.filter(p => !p.paid).length
   const paidCount = split.totalParticipants - unpaidCount
   const progressPercent = (paidCount / split.totalParticipants) * 100
-
-  // Check if current user is a participant
-  const userParticipant = userAddress 
-    ? split.participants.find(p => p.address.toLowerCase() === userAddress.toLowerCase())
-    : null
 
   return (
     <div className="py-12 max-w-2xl mx-auto">
@@ -320,15 +381,34 @@ export default function SplitDetailPage() {
                 <Check className="w-5 h-5" />
                 <span className="font-medium">Paid</span>
               </div>
+            ) : !isConnected ? (
+              <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                <Wallet className="w-5 h-5" />
+                <span className="text-sm">Connect wallet</span>
+              </div>
             ) : (
-              <button className="btn-primary">
-                Pay now
+              <button 
+                onClick={handleGetQuote}
+                disabled={paymentStatus === 'fetching-quote'}
+                className="btn-primary flex items-center gap-2"
+              >
+                {paymentStatus === 'fetching-quote' ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Getting quote...
+                  </>
+                ) : (
+                  <>
+                    Settle now
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
               </button>
             )}
           </div>
           {userParticipant.txHash && (
             <a
-              href={`https://sepolia.etherscan.io/tx/${userParticipant.txHash}`}
+              href={getTxExplorerUrl(userParticipant.txHash, txChainId || chainId || 11155111)}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1 text-sm text-indigo-600 dark:text-indigo-400 hover:underline mt-2"
@@ -392,7 +472,7 @@ export default function SplitDetailPage() {
                       <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Paid</span>
                       {participant.txHash && (
                         <a
-                          href={`https://sepolia.etherscan.io/tx/${participant.txHash}`}
+                          href={getTxExplorerUrl(participant.txHash, chainId || 11155111)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="flex items-center gap-1 text-xs text-gray-500 hover:text-indigo-600 dark:hover:text-indigo-400 mt-0.5"
@@ -419,6 +499,107 @@ export default function SplitDetailPage() {
       <p className="text-center text-xs text-gray-500 mt-6">
         Created {new Date(split.createdAt).toLocaleDateString()} at {new Date(split.createdAt).toLocaleTimeString()}
       </p>
+
+      {/* Payment Modal */}
+      {showPayModal && quote && userParticipant && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="card p-6 w-full max-w-md animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Settle Your Share
+              </h3>
+              <button 
+                onClick={() => setShowPayModal(false)}
+                className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            {/* Payment details */}
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-gray-50 dark:bg-gray-800/50">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm text-gray-500">Your share</span>
+                  <span className="font-medium text-gray-900 dark:text-white">
+                    ${((split.amount * userParticipant.share) / 100).toFixed(2)} USDC
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-500">You pay</span>
+                  <span className="font-bold text-lg text-gray-900 dark:text-white">
+                    {Number(quote.estimatedEthIn).toFixed(6)} ETH
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 text-sm text-gray-500">
+                <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span>Swapping ETH → USDC via Uniswap</span>
+              </div>
+
+              {paymentError && (
+                <div className="p-3 rounded-lg bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 text-sm flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  {paymentError}
+                </div>
+              )}
+
+              {/* Success state */}
+              {paymentStatus === 'success' && txHash && (
+                <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-500/10">
+                  <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 mb-2">
+                    <Check className="w-5 h-5" />
+                    <span className="font-medium">Payment successful!</span>
+                  </div>
+                  <a
+                    href={getTxExplorerUrl(txHash, txChainId || chainId || 11155111)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-sm text-indigo-600 dark:text-indigo-400 hover:underline"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    View transaction
+                  </a>
+                </div>
+              )}
+
+              {/* Action buttons */}
+              {paymentStatus !== 'success' && (
+                <button
+                  onClick={handlePay}
+                  disabled={paymentStatus === 'executing' || paymentStatus === 'awaiting-approval'}
+                  className="btn-primary w-full flex items-center justify-center gap-2"
+                >
+                  {(paymentStatus === 'executing' || paymentStatus === 'awaiting-approval') ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {paymentStatus === 'awaiting-approval' ? 'Approve in wallet...' : 'Processing...'}
+                    </>
+                  ) : (
+                    <>
+                      <Wallet className="w-4 h-4" />
+                      Pay {Number(quote.estimatedEthIn).toFixed(6)} ETH
+                    </>
+                  )}
+                </button>
+              )}
+
+              {paymentStatus === 'success' && (
+                <button
+                  onClick={() => {
+                    setShowPayModal(false)
+                    window.location.reload()
+                  }}
+                  className="btn-secondary w-full"
+                >
+                  Done
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

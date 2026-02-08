@@ -7,7 +7,7 @@ import { getDefaultConfig, RainbowKitProvider, lightTheme } from '@rainbow-me/ra
 import '@rainbow-me/rainbowkit/styles.css'
 import { WagmiProvider } from 'wagmi'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { sepolia } from 'wagmi/chains'
+import { sepolia, mainnet } from 'wagmi/chains'
 
 // Initialize LI.FI SDK on app load
 import './lib/lifi'
@@ -17,7 +17,7 @@ const PROJECT_ID = (import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string) || 
 const config = getDefaultConfig({
   appName: 'PayLink',
   projectId: PROJECT_ID,
-  chains: [sepolia], // Testnet mode - Uniswap works on Sepolia
+  chains: [sepolia, mainnet], // Sepolia for transactions, mainnet for ENS lookups
 })
 const queryClient = new QueryClient()
 

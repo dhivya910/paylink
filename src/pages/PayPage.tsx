@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { useAccount, useChainId, useEnsAddress, useEnsAvatar } from 'wagmi';
-import { mainnet } from 'wagmi/chains';
+import { useAccount, useChainId } from 'wagmi';
 import { useLiFiPayment } from '../lib/useLiFiPayment';
 import { useUniswapPayment } from '../lib/useUniswapPayment';
 import { CHAIN_NAMES, getTxExplorerUrl } from '../lib/lifi';
@@ -31,10 +30,23 @@ interface Intent {
 
 // ENS Avatar with gradient fallback
 function RecipientAvatar({ address, ensName }: { address: string; ensName?: string }) {
-  const { data: avatar } = useEnsAvatar({
-    name: ensName,
-    chainId: mainnet.id,
-  });
+  const [avatar, setAvatar] = useState<string | null>(null);
+  
+  useEffect(() => {
+    if (!ensName) {
+      setAvatar(null);
+      return;
+    }
+    
+    // Use ENS metadata service for avatar
+    const avatarUrl = `https://metadata.ens.domains/mainnet/avatar/${ensName}`;
+    
+    // Test if avatar exists by loading as image
+    const img = new Image();
+    img.onload = () => setAvatar(avatarUrl);
+    img.onerror = () => setAvatar(null);
+    img.src = avatarUrl;
+  }, [ensName]);
   
   if (avatar) {
     return <img src={avatar} alt={ensName || address} className="w-10 h-10 rounded-full object-cover border-2 border-emerald-200 dark:border-emerald-500/30" />
@@ -54,8 +66,7 @@ export default function PayPage() {
   const [intent, setIntent] = useState<Intent | null>(null);
   const [intentLoading, setIntentLoading] = useState(true);
   const [routeType, setRouteType] = useState<'auto' | 'lifi' | 'uniswap'>('auto');
-
-  // LI.FI hook (cross-chain)
+  const [txChainId, setTxChainId] = useState<number | null>(null); // Store chain ID when tx is made
   const {
     status: lifiStatus,
     routeInfo: lifiRouteInfo,
@@ -115,16 +126,47 @@ export default function PayPage() {
 
   const reset = useUniswap ? resetUniswap : resetLifi;
 
-  // ENS resolution
+  // ENS resolution state
   const recipientIsENS = intent?.recipient?.endsWith('.eth');
-  const { data: resolvedAddress, isLoading: ensLoading, isError: ensError, refetch: refetchEns } = useEnsAddress({
-    name: recipientIsENS ? intent?.recipient : undefined,
-    chainId: mainnet.id,
-  });
+  const [resolvedAddress, setResolvedAddress] = useState<string | null>(null);
+  const [ensLoading, setEnsLoading] = useState(false);
   
-  // For ENS: use resolved address, or fallback to original ENS name if resolution failed but we still want to try
+  // ENS resolution using enstate.rs API
+  const resolveENS = async (ensName: string) => {
+    setEnsLoading(true);
+    setResolvedAddress(null);
+    
+    try {
+      const response = await fetch(`https://enstate.rs/n/${ensName}`);
+      if (!response.ok) throw new Error('ENS not found');
+      
+      const data = await response.json();
+      const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+      
+      // Check if ENS has an address set
+      const hasAddress = data.address && data.address !== ZERO_ADDRESS;
+      
+      if (hasAddress) {
+        setResolvedAddress(data.address);
+      }
+      // If no address, resolvedAddress stays null and ensResolutionFailed will be true
+    } catch {
+      // resolvedAddress stays null
+    } finally {
+      setEnsLoading(false);
+    }
+  };
+  
+  // Resolve ENS when intent changes
+  useEffect(() => {
+    if (recipientIsENS && intent?.recipient) {
+      resolveENS(intent.recipient);
+    }
+  }, [recipientIsENS, intent?.recipient]);
+  
+  // For ENS: use resolved address
   const finalRecipient = recipientIsENS 
-    ? (resolvedAddress || (ensError ? undefined : undefined)) // Only proceed with resolved address
+    ? resolvedAddress
     : intent?.recipient;
   
   // ENS resolution status for UI
@@ -168,11 +210,20 @@ export default function PayPage() {
   };
 
   const handlePay = async () => {
-    if (!finalRecipient) return;
+    console.log('handlePay called', { finalRecipient, useUniswap });
+    if (!finalRecipient) {
+      console.error('No finalRecipient!');
+      return;
+    }
+    
+    // Store the chain ID before executing the transaction
+    setTxChainId(chainId);
     
     if (useUniswap) {
+      console.log('Executing Uniswap swap...');
       await executeUniswapSwap(finalRecipient);
     } else {
+      console.log('Executing LI.FI payment...');
       await executeLifiPayment();
     }
   };
@@ -268,7 +319,7 @@ export default function PayPage() {
             <>
               <hr className="border-slate-200 dark:border-slate-700" />
               <a
-                href={getTxExplorerUrl(txHash, chainId)}
+                href={getTxExplorerUrl(txHash, txChainId || chainId)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn-secondary w-full flex items-center justify-center gap-2"
@@ -333,7 +384,7 @@ export default function PayPage() {
                     <span className="flex items-center gap-2">
                       <span className="text-amber-600 dark:text-amber-400">{intent.recipient}</span>
                       <button 
-                        onClick={() => refetchEns()}
+                        onClick={() => intent?.recipient && resolveENS(intent.recipient)}
                         className="text-xs px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-500/20"
                       >
                         Retry
@@ -443,9 +494,27 @@ export default function PayPage() {
         )}
 
         {status === 'executing' && (
-          <div className="p-3 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 flex items-center gap-3">
-            <Loader2 className="w-5 h-5 text-indigo-600 dark:text-indigo-400 animate-spin flex-shrink-0" />
-            <p className="text-sm font-medium text-indigo-700 dark:text-indigo-400">Processing payment...</p>
+          <div className="p-4 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 space-y-3">
+            <div className="flex items-center gap-3">
+              <Loader2 className="w-5 h-5 text-indigo-600 dark:text-indigo-400 animate-spin flex-shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-indigo-700 dark:text-indigo-400">Processing payment...</p>
+                <p className="text-xs text-indigo-600/70 dark:text-indigo-400/70 mt-0.5">
+                  {isTestnet ? 'Testnet transactions may take 15-30 seconds' : 'Waiting for confirmation'}
+                </p>
+              </div>
+            </div>
+            {txHash && (
+              <a
+                href={getTxExplorerUrl(txHash, txChainId || chainId)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+              >
+                <span>View transaction on explorer</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
           </div>
         )}
 
@@ -479,7 +548,7 @@ export default function PayPage() {
                   </p>
                 </div>
                 <button 
-                  onClick={() => refetchEns()}
+                  onClick={() => intent?.recipient && resolveENS(intent.recipient)}
                   className="px-3 py-1.5 rounded-lg bg-amber-200 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 text-sm font-medium hover:bg-amber-300 dark:hover:bg-amber-500/30 transition-colors"
                 >
                   Retry

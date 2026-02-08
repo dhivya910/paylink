@@ -164,38 +164,78 @@ export function useUniswapPayment(): UseUniswapPaymentReturn {
    */
   const executeSwap = useCallback(async (recipient: string) => {
     if (!quote || !walletClient) {
+      console.error('Missing quote or wallet:', { quote: !!quote, walletClient: !!walletClient });
       setError('No quote available or wallet not connected');
       setStatus('error');
       return;
     }
 
+    console.log('Starting swap execution...', { recipient, quote });
     setStatus('executing');
     setError(null);
 
     try {
       // Build the swap transaction
+      console.log('Building swap transaction...');
       const swapTx = buildEthToUsdcSwap({
         chainId: quote.chainId,
         recipient,
         amountOutUsdc: quote.usdcOutWei,
         amountInMaxEth: quote.maxEthInWei,
       });
+      console.log('Swap transaction built:', swapTx);
 
       // Send the transaction
+      console.log('Sending transaction to wallet...');
       const hash = await walletClient.sendTransaction({
         to: swapTx.to as `0x${string}`,
         data: swapTx.data as `0x${string}`,
         value: swapTx.value,
       });
 
+      console.log('Transaction sent! Hash:', hash);
       setTxHash(hash);
 
-      // Wait for confirmation
+      // Wait for confirmation with timeout and verify transaction exists
       if (publicClient) {
-        await publicClient.waitForTransactionReceipt({ hash });
+        console.log('Waiting for transaction confirmation...');
+        let confirmed = false;
+        
+        try {
+          const receipt = await publicClient.waitForTransactionReceipt({ 
+            hash,
+            timeout: 60_000, // 60 second timeout for testnets
+          });
+          console.log('Transaction confirmed!', receipt);
+          confirmed = true;
+        } catch (waitError: any) {
+          console.warn('waitForTransactionReceipt failed:', waitError?.message || waitError);
+          
+          // Try to fetch the transaction to see if it at least exists
+          try {
+            const tx = await publicClient.getTransaction({ hash });
+            if (tx) {
+              console.log('Transaction found in mempool/chain:', tx);
+              confirmed = true;
+            } else {
+              console.error('Transaction not found - may not have been broadcast');
+            }
+          } catch (getTxError) {
+            console.error('Could not verify transaction exists:', getTxError);
+          }
+        }
+        
+        if (!confirmed) {
+          // Transaction hash was returned but we can't verify it exists
+          // This likely means it wasn't broadcast properly
+          setError('Transaction may not have been broadcast. Please check your wallet and try again.');
+          setStatus('error');
+          return;
+        }
       }
 
       setStatus('success');
+      console.log('Payment complete! Status set to success');
     } catch (err: any) {
       console.error('Uniswap swap error:', err);
       

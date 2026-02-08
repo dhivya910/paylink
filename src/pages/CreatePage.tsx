@@ -3,7 +3,7 @@
  * Clean, minimal Stripe/Linear/Vercel inspired design
  */
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { isAddress } from 'viem';
 import { 
@@ -14,18 +14,128 @@ import {
   ExternalLink,
   ArrowLeft
 } from 'lucide-react';
+import { generateAddressGradient, getInitials } from '../lib/useENS';
 
-function isValidRecipient(input: string): boolean {
-  if (!input) return false;
-  const trimmed = input.trim();
-  if (trimmed.endsWith('.eth')) return trimmed.length > 4;
-  return isAddress(trimmed);
+// Recipient input with ENS avatar (using ENS metadata service to avoid CORS)
+function RecipientInput({ value, onChange, onValidationChange }: { value: string; onChange: (v: string) => void; onValidationChange?: (isValid: boolean) => void }) {
+  const isENS = value.endsWith('.eth') && value.length > 4;
+  const isValidAddress = !!(value && isAddress(value));
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [hasAvatar, setHasAvatar] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
+
+  // Use ref to avoid infinite loops with callback in dependencies
+  const onValidationChangeRef = useRef(onValidationChange);
+  onValidationChangeRef.current = onValidationChange;
+
+  useEffect(() => {
+    if (!isENS) {
+      setAvatarUrl(null);
+      setHasAvatar(false);
+      setIsVerified(false);
+      setIsChecking(false);
+      return;
+    }
+    
+    setIsChecking(true);
+    setIsVerified(false);
+    setHasAvatar(false);
+    
+    // Use ENS metadata service for avatar
+    const avatarUrlStr = `https://metadata.ens.domains/mainnet/avatar/${value}`;
+    setAvatarUrl(avatarUrlStr);
+    
+    // Check avatar (for display purposes)
+    const img = new Image();
+    img.onload = () => setHasAvatar(true);
+    img.onerror = () => setHasAvatar(false);
+    img.src = avatarUrlStr;
+    
+    // Use enstate.rs API to verify ENS registration (checks resolver exists)
+    fetch(`https://enstate.rs/n/${value}`)
+      .then(res => {
+        if (!res.ok) throw new Error('Not found');
+        return res.json();
+      })
+      .then(data => {
+        // ENS is valid if it has a resolver (even if address is null/zero)
+        // Or if it has a non-zero address
+        const hasResolver = !!(data && data.resolver && data.resolver !== '0x0000000000000000000000000000000000000000');
+        const hasAddress = !!(data && data.address && data.address !== '0x0000000000000000000000000000000000000000');
+        const valid = hasResolver || hasAddress;
+        setIsVerified(valid);
+        setIsChecking(false);
+        onValidationChangeRef.current?.(valid);
+      })
+      .catch(() => {
+        setIsVerified(false);
+        setIsChecking(false);
+        onValidationChangeRef.current?.(false);
+      });
+  }, [value, isENS]);
+
+  // Notify parent of validation state for non-ENS values
+  useEffect(() => {
+    if (!isENS && value) {
+      onValidationChangeRef.current?.(isValidAddress);
+    } else if (!value) {
+      onValidationChangeRef.current?.(false);
+    }
+  }, [value, isENS, isValidAddress]);
+
+  const showError = isENS && !isChecking && !isVerified;
+
+  return (
+    <div className="space-y-1">
+      <div className="relative">
+        <input
+          type="text"
+          placeholder="0x... or vitalik.eth"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className={`input font-mono text-sm ${isENS ? 'pr-12' : ''} ${showError ? 'border-red-300 dark:border-red-500/50 focus:ring-red-500/20' : ''}`}
+        />
+        {isENS && (
+          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+            {isChecking ? (
+              <div className="w-8 h-8 flex items-center justify-center">
+                <div className="w-5 h-5 border-2 border-slate-300 border-t-indigo-500 rounded-full animate-spin" />
+              </div>
+            ) : (
+              <div className="relative">
+                <div className={`w-8 h-8 rounded-full ${isVerified ? 'ring-2 ring-emerald-500' : 'ring-2 ring-red-400'} p-0.5`}>
+                  {avatarUrl && hasAvatar ? (
+                    <img 
+                      src={avatarUrl} 
+                      alt={value} 
+                      className="w-full h-full rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className={`w-full h-full rounded-full bg-gradient-to-br ${generateAddressGradient(value)} flex items-center justify-center text-white text-xs font-bold`}>
+                      {getInitials(value)}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      {showError && (
+        <p className="text-xs text-red-500 dark:text-red-400">
+          "{value}" is not a registered ENS name
+        </p>
+      )}
+    </div>
+  );
 }
 
 export default function CreatePage() {
   const [amount, setAmount] = useState('');
   const [token] = useState('USDC');
   const [recipient, setRecipient] = useState('');
+  const [isRecipientValid, setIsRecipientValid] = useState(false);
   const [note, setNote] = useState('');
   const [link, setLink] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -39,8 +149,8 @@ export default function CreatePage() {
       setError('Please enter a valid amount');
       return;
     }
-    if (!isValidRecipient(recipient)) {
-      setError('Please enter a valid wallet address or ENS name');
+    if (!isRecipientValid) {
+      setError('Please enter a valid wallet address or registered ENS name');
       return;
     }
 
@@ -216,13 +326,7 @@ export default function CreatePage() {
           {/* Recipient */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Recipient Address</label>
-            <input
-              type="text"
-              placeholder="0x... or name.eth"
-              value={recipient}
-              onChange={(e) => setRecipient(e.target.value)}
-              className="input font-mono text-sm"
-            />
+            <RecipientInput value={recipient} onChange={setRecipient} onValidationChange={setIsRecipientValid} />
           </div>
 
           {/* Note */}
@@ -250,7 +354,7 @@ export default function CreatePage() {
         {/* Submit */}
         <button
           onClick={createIntent}
-          disabled={loading || !amount || !recipient}
+          disabled={loading || !amount || !isRecipientValid}
           className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (
