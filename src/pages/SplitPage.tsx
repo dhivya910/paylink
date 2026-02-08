@@ -2,11 +2,72 @@ import { useState } from 'react'
 import { useAccount } from 'wagmi'
 import { Users, Plus, Trash2, Copy, Check, ArrowLeft, Loader2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { useENSProfile, formatAddress, generateAddressGradient, getInitials } from '../lib/useENS'
+import ShareMenu from '../components/ShareMenu'
 
 interface Participant {
   id: string
   address: string
   share: number
+}
+
+// Check if address is valid for ENS lookup
+function isValidForENS(address: string): boolean {
+  if (!address) return false
+  // Only lookup ENS for .eth names or valid 0x addresses
+  if (address.endsWith('.eth')) return address.length > 4
+  return /^0x[a-fA-F0-9]{40}$/.test(address)
+}
+
+// ENS Avatar component with fallback - only looks up if valid
+function ENSAvatar({ address, size = 'sm' }: { address: string; size?: 'sm' | 'md' }) {
+  const shouldLookup = isValidForENS(address)
+  const { avatar, name } = useENSProfile(shouldLookup ? address as `0x${string}` : undefined)
+  const sizeClass = size === 'sm' ? 'w-6 h-6 text-[10px]' : 'w-8 h-8 text-xs'
+  
+  if (avatar) {
+    return <img src={avatar} alt={name || address} className={`${sizeClass} rounded-full object-cover`} />
+  }
+  
+  return (
+    <div className={`${sizeClass} rounded-full bg-gradient-to-br ${generateAddressGradient(address)} flex items-center justify-center text-white font-medium`}>
+      {getInitials(name || address)}
+    </div>
+  )
+}
+
+// Participant display with ENS - simplified, no loading state blocking
+function ParticipantDisplay({ address }: { address: string }) {
+  const shouldLookup = isValidForENS(address)
+  const { name } = useENSProfile(shouldLookup ? address as `0x${string}` : undefined)
+  
+  // For ENS names entered directly (vitalik.eth)
+  if (address.endsWith('.eth')) {
+    return (
+      <span className="flex items-center gap-1.5">
+        <ENSAvatar address={address} />
+        <span className="text-emerald-600 dark:text-emerald-400 font-medium">{address}</span>
+      </span>
+    )
+  }
+  
+  // For addresses that resolved to ENS names
+  if (name) {
+    return (
+      <span className="flex items-center gap-1.5">
+        <ENSAvatar address={address} />
+        <span className="text-emerald-600 dark:text-emerald-400 font-medium">{name}</span>
+      </span>
+    )
+  }
+  
+  // Default: show formatted address
+  return (
+    <span className="flex items-center gap-1.5">
+      <ENSAvatar address={address} />
+      <span className="font-mono text-slate-600 dark:text-slate-400">{formatAddress(address)}</span>
+    </span>
+  )
 }
 
 export default function SplitPage() {
@@ -15,8 +76,7 @@ export default function SplitPage() {
   const [description, setDescription] = useState('')
   const [recipient, setRecipient] = useState('')
   const [participants, setParticipants] = useState<Participant[]>([
-    { id: '1', address: '', share: 50 },
-    { id: '2', address: '', share: 50 },
+    { id: '1', address: '', share: 100 },
   ])
   const [copied, setCopied] = useState(false)
   const [splitCreated, setSplitCreated] = useState(false)
@@ -34,7 +94,7 @@ export default function SplitPage() {
   }
 
   const removeParticipant = (id: string) => {
-    if (participants.length <= 2) return
+    if (participants.length <= 1) return
     const filtered = participants.filter(p => p.id !== id)
     const newShare = Math.floor(100 / filtered.length)
     setParticipants(filtered.map(p => ({ ...p, share: newShare })))
@@ -148,9 +208,7 @@ export default function SplitPage() {
             <p className="text-xs text-slate-500 font-medium">Breakdown</p>
             {participants.map((p) => (
               <div key={p.id} className="flex items-center justify-between text-sm p-2 rounded bg-slate-50 dark:bg-slate-800">
-                <span className="font-mono text-slate-600 dark:text-slate-400">
-                  {p.address.slice(0, 6)}...{p.address.slice(-4)}
-                </span>
+                <ParticipantDisplay address={p.address} />
                 <span className="font-medium text-slate-900 dark:text-white">
                   ${((Number(totalAmount) * p.share) / 100).toFixed(2)} ({p.share}%)
                 </span>
@@ -171,6 +229,24 @@ export default function SplitPage() {
               </span>
             )}
           </button>
+
+          {/* Share Menu */}
+          <ShareMenu
+            splitId={splitId}
+            amount={Number(totalAmount)}
+            description={description}
+            buttonClassName="btn-secondary w-full flex items-center justify-center gap-2"
+            buttonText="Share via Messenger"
+          />
+
+          {/* View Split button */}
+          <Link 
+            to={`/split/${splitId}`} 
+            className="btn-secondary w-full flex items-center justify-center gap-2"
+          >
+            <Users className="w-5 h-5" />
+            View Split Details
+          </Link>
 
           <button 
             onClick={() => {
@@ -303,10 +379,8 @@ export default function SplitPage() {
           <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-2">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Split Preview</p>
             {participants.filter(p => p.address).map((p) => (
-              <div key={p.id} className="flex justify-between text-sm">
-                <span className="text-slate-600 dark:text-slate-400 truncate max-w-[150px]">
-                  {p.address.includes('.eth') ? p.address : `${p.address.slice(0, 6)}...${p.address.slice(-4)}`}
-                </span>
+              <div key={p.id} className="flex justify-between items-center text-sm">
+                <ParticipantDisplay address={p.address} />
                 <span className="text-slate-900 dark:text-white font-medium">
                   ${((Number(totalAmount) * p.share) / 100).toFixed(2)}
                 </span>
@@ -318,7 +392,7 @@ export default function SplitPage() {
         {/* Submit */}
         <button
           onClick={handleCreateSplit}
-          disabled={loading || !totalAmount || !participants.every(p => p.address) || totalShares !== 100}
+          disabled={loading || !totalAmount || !participants.every(p => p.address.trim()) || totalShares !== 100}
           className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (
@@ -330,6 +404,17 @@ export default function SplitPage() {
             'Create Split'
           )}
         </button>
+
+        {/* Validation hints */}
+        {(!totalAmount || !participants.every(p => p.address.trim()) || totalShares !== 100) && (
+          <div className="text-xs text-slate-500 space-y-1">
+            {!totalAmount && <p>• Enter a total amount</p>}
+            {!participants.every(p => p.address.trim()) && (
+              <p>• Fill in all {participants.length} participant addresses ({participants.filter(p => p.address.trim()).length}/{participants.length} filled)</p>
+            )}
+            {totalShares !== 100 && <p>• Shares must total 100% (currently {totalShares}%)</p>}
+          </div>
+        )}
 
         {/* Features */}
         <div className="grid grid-cols-2 gap-3 pt-2">
