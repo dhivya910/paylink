@@ -1,5 +1,5 @@
 {
-  "name": "paylink",
+  "name": "Zap",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -13,6 +13,9 @@
     "@lifi/sdk": "^3.15.4",
     "@rainbow-me/rainbowkit": "^2.2.10",
     "@tanstack/react-query": "^5.90.20",
+    "@uniswap/sdk-core": "^7.10.1",
+    "@uniswap/smart-order-router": "^4.31.10",
+    "@uniswap/v3-sdk": "^3.27.0",
     "autoprefixer": "^10.4.23",
     "lucide-react": "^0.563.0",
     "postcss": "^8.5.6",
